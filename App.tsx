@@ -31,6 +31,8 @@ const App: React.FC = () => {
   const [isKeyModalOpen, setIsKeyModalOpen] = useState(false);
   const [keyMessage, setKeyMessage] = useState<string | null>(null);
   const [proAccess, setProAccess] = useState<boolean>(false);
+  const [analysisMessage, setAnalysisMessage] = useState<string>("장면 구성안 설계 중...");
+  const finishingRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   
   const checkingRef = useRef(false);
 
@@ -72,14 +74,34 @@ const App: React.FC = () => {
     let interval: any;
     if (state.isAnalyzing) {
       interval = setInterval(() => {
-        setState(prev => ({
-          ...prev,
-          analysisProgress: prev.analysisProgress < 95 ? prev.analysisProgress + Math.floor(Math.random() * 5) + 1 : 95
-        }));
-      }, 300);
+        setState(prev => {
+          const nextProgress =
+            prev.analysisProgress < 90
+              ? Math.min(90, prev.analysisProgress + Math.floor(Math.random() * 5) + 2)
+              : Math.min(99, prev.analysisProgress + 1);
+          return { ...prev, analysisProgress: nextProgress };
+        });
+      }, 350);
     } else clearInterval(interval);
     return () => clearInterval(interval);
   }, [state.isAnalyzing]);
+
+  useEffect(() => {
+    return () => {
+      if (finishingRef.current) {
+        clearTimeout(finishingRef.current);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!state.isAnalyzing) return;
+    if (state.analysisProgress < 25) setAnalysisMessage("스토리보드 콘셉트 정리 중...");
+    else if (state.analysisProgress < 50) setAnalysisMessage("장면 흐름에 생명을 불어넣는 중...");
+    else if (state.analysisProgress < 75) setAnalysisMessage("카메라 앵글 배치 중...");
+    else if (state.analysisProgress < 90) setAnalysisMessage("시네마틱 톤 매칭 중...");
+    else setAnalysisMessage("완성도를 미세 조정 중...");
+  }, [state.analysisProgress, state.isAnalyzing]);
 
   const handleOpenKeySelector = () => {
     setKeyInput(apiKey);
@@ -183,7 +205,11 @@ const App: React.FC = () => {
         promptKo: a.promptKo,
         status: 'pending'
       }));
-      setState(prev => ({ ...prev, plan, angles: initialAngles, isAnalyzing: false, analysisProgress: 100, appStep: 'result' }));
+      setState(prev => ({ ...prev, plan, angles: initialAngles, analysisProgress: 100 }));
+      if (finishingRef.current) clearTimeout(finishingRef.current);
+      finishingRef.current = setTimeout(() => {
+        setState(prev => ({ ...prev, isAnalyzing: false, appStep: 'result' }));
+      }, 350);
     } catch (err: any) {
       if (err.message === 'REQUEST_TIMEOUT') {
         setError("기획 생성이 지연되고 있습니다. 다시 시도해 주세요.");
@@ -242,7 +268,7 @@ const App: React.FC = () => {
         isPro, 
         {
           aspectRatio: state.plan.aspectRatio,
-          resolution: state.plan.resolution
+          resolution: outputResolution
         },
         apiKey
       );
@@ -284,6 +310,15 @@ const App: React.FC = () => {
     setTimeout(() => setCopiedId(null), 2000);
   };
 
+  const outputResolution = state.generationMode === 'pro' && proAccess ? '2K' : '1K';
+
+  useEffect(() => {
+    if (!state.plan) return;
+    if (state.plan.resolution !== outputResolution) {
+      setState(prev => ({ ...prev, plan: { ...prev.plan!, resolution: outputResolution } }));
+    }
+  }, [outputResolution, state.plan]);
+
   const toSafeFilename = (value: string) =>
     value
       .toLowerCase()
@@ -322,6 +357,7 @@ const App: React.FC = () => {
     : (state.selectedCategory || customCategory);
 
   const isConsistencyActive = state.generationMode === 'pro' && keyStatus === 'valid' && proAccess;
+  const isWorking = state.isAnalyzing || state.isGeneratingAll || keyStatus === 'checking' || state.angles.some(a => a.status === 'generating');
 
   return (
     <div className="min-h-screen pb-12 bg-slate-950 text-slate-100 selection:bg-indigo-500/30 flex flex-col">
@@ -358,6 +394,12 @@ const App: React.FC = () => {
           )}
         </div>
       </header>
+
+      {isWorking && (
+        <div className="fixed top-0 left-0 right-0 z-[70]">
+          <div className="h-1 w-full bg-gradient-to-r from-indigo-500 via-sky-400 to-emerald-400 animate-pulse"></div>
+        </div>
+      )}
 
       {isKeyModalOpen && (
         <div className="fixed inset-0 z-[60] bg-black/70 backdrop-blur-sm flex items-center justify-center px-6">
@@ -562,7 +604,8 @@ const App: React.FC = () => {
                   <div className="w-full max-w-xs bg-slate-800 h-1.5 rounded-full overflow-hidden mb-6">
                     <div className="bg-indigo-500 h-full transition-all duration-300" style={{ width: `${state.analysisProgress}%` }}/>
                   </div>
-                  <p className="text-indigo-400 font-black tracking-[0.4em] uppercase mb-4 animate-pulse">Designing Sequence</p>
+                  <p className="text-indigo-400 font-black tracking-[0.35em] uppercase mb-3 animate-pulse">Designing Sequence</p>
+                  <p className="text-xs text-slate-400 font-semibold">{analysisMessage}</p>
                 </div>
               )}
             </div>
@@ -578,7 +621,7 @@ const App: React.FC = () => {
               )}
               <p className="text-slate-400 mb-8 font-medium leading-relaxed">캐릭터 일관성 유지를 위한 엄격한 데이터 잠금 후,<br/>9단계의 시네마틱 프롬프트를 작성합니다.</p>
               <button disabled={state.isAnalyzing} onClick={startAnalysis} className="bg-indigo-600 text-white px-14 py-6 rounded-[2rem] font-black text-2xl shadow-2xl hover:bg-indigo-500 transition-all">
-                {state.isAnalyzing ? "기획 중..." : "Generate Blueprint"}
+                {state.isAnalyzing ? <><i className="fas fa-circle-notch fa-spin mr-2"></i>기획 중...</> : "Generate Blueprint"}
               </button>
               {error && (
                 <div className="mt-6 p-4 bg-red-500/10 border border-red-500/20 rounded-2xl text-red-300 font-bold">
@@ -609,7 +652,7 @@ const App: React.FC = () => {
                   </button>
                   <div className="flex bg-slate-950 p-2 rounded-2xl border border-slate-800 shadow-inner">
                     <button onClick={() => setState(prev => ({ ...prev, generationMode: 'standard' }))} className={`px-6 py-3 rounded-xl text-sm font-black transition-all ${state.generationMode === 'standard' ? 'bg-slate-800 text-white shadow-xl' : 'text-slate-500 hover:text-slate-300'}`}>Standard (Flash)</button>
-                    <button onClick={() => setState(prev => ({ ...prev, generationMode: 'pro' }))} className={`px-6 py-3 rounded-xl text-sm font-black transition-all ${state.generationMode === 'pro' ? 'bg-indigo-600 text-white shadow-xl shadow-indigo-600/20' : 'text-slate-500 hover:text-slate-300'}`}>Pro (1K)</button>
+                    <button onClick={() => setState(prev => ({ ...prev, generationMode: 'pro' }))} className={`px-6 py-3 rounded-xl text-sm font-black transition-all ${state.generationMode === 'pro' ? 'bg-indigo-600 text-white shadow-xl shadow-indigo-600/20' : 'text-slate-500 hover:text-slate-300'}`}>Pro (2K)</button>
                   </div>
                 </div>
               </div>
@@ -622,31 +665,42 @@ const App: React.FC = () => {
               )}
 
               <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-8 mb-16">
-                {[ { label: 'Identity Lock', key: 'subject', icon: 'fa-fingerprint' }, { label: 'Visual Style', key: 'style', icon: 'fa-clapperboard' }, { label: 'Aspect Ratio', key: 'aspectRatio', icon: 'fa-expand' }, { label: 'Resolution', key: 'resolution', icon: 'fa-signal' } ].map((item) => (
+                {[ { label: 'Identity Lock', key: 'subject', icon: 'fa-fingerprint' }, { label: 'Visual Style', key: 'style', icon: 'fa-clapperboard' }, { label: 'Aspect Ratio', key: 'aspectRatio', icon: 'fa-expand' }, { label: 'Output Resolution', key: 'resolution', icon: 'fa-signal' } ].map((item) => (
                   <div key={item.key} className="bg-slate-950/40 p-8 rounded-3xl border border-slate-800/60">
                     <h4 className="font-black text-indigo-400 text-xs mb-4 uppercase tracking-[0.2em] flex items-center gap-3"><i className={`fas ${item.icon}`}></i> {item.label}</h4>
                     {state.isEditing ? (
                       item.key === 'aspectRatio' || item.key === 'resolution' ? (
-                        <select value={(state.plan as any)[item.key]} onChange={(e) => setState(prev => ({ ...prev, plan: { ...prev.plan!, [item.key]: e.target.value } }))} className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-sm text-slate-300 focus:ring-1 focus:ring-indigo-500">
+                        <select
+                          value={item.key === 'resolution' ? outputResolution : (state.plan as any)[item.key]}
+                          onChange={(e) => setState(prev => ({ ...prev, plan: { ...prev.plan!, [item.key]: e.target.value } }))}
+                          disabled={item.key === 'resolution' && (state.generationMode !== 'pro' || !proAccess)}
+                          className={`w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-sm text-slate-300 focus:ring-1 focus:ring-indigo-500 ${item.key === 'resolution' && (state.generationMode !== 'pro' || !proAccess) ? 'opacity-60 cursor-not-allowed' : ''}`}
+                        >
                           {item.key === 'aspectRatio' ? ['16:9','9:16','4:3','1:1'].map(v => <option key={v} value={v}>{v}</option>) : ['1K','2K'].map(v => <option key={v} value={v}>{v}</option>)}
                         </select>
                       ) : (
                         <textarea value={(state.plan as any)[item.key]} onChange={(e) => setState(prev => ({ ...prev, plan: { ...prev.plan!, [item.key]: e.target.value } }))} className="w-full h-24 bg-slate-900 border border-slate-700 rounded-xl p-3 text-sm text-slate-300 focus:ring-1 focus:ring-indigo-500"/>
                       )
-                    ) : <p className="text-slate-300 text-sm leading-relaxed">{(state.plan as any)[item.key]}</p>}
+                    ) : (
+                      <p className="text-slate-300 text-sm leading-relaxed">
+                        {item.key === 'resolution' ? outputResolution : (state.plan as any)[item.key]}
+                      </p>
+                    )}
                   </div>
                 ))}
               </div>
 
               {state.isEditing && (
-                <button onClick={handleSaveEdits} className="mb-10 bg-indigo-600 text-white px-8 py-3 rounded-xl font-bold hover:bg-indigo-500 transition-all">Apply & Re-generate Prompts</button>
+                <button onClick={handleSaveEdits} className="mb-10 bg-indigo-600 text-white px-8 py-3 rounded-xl font-bold hover:bg-indigo-500 transition-all">
+                  {state.isAnalyzing ? <><i className="fas fa-circle-notch fa-spin mr-2"></i>업데이트 중...</> : "Apply & Re-generate Prompts"}
+                </button>
               )}
 
               <div className="flex flex-wrap gap-8 items-center">
                 <button onClick={generateAllImages} disabled={state.isGeneratingAll || state.isEditing} className={`px-12 py-6 rounded-[2rem] font-black text-2xl shadow-xl transition-all disabled:opacity-50 
                   ${isConsistencyActive ? 'bg-green-600 text-white hover:bg-green-500 shadow-green-500/20' : state.generationMode === 'pro' ? 'bg-indigo-600 text-white hover:bg-indigo-500' : 'bg-white text-slate-950 hover:bg-slate-200'}`}>
                   {state.isGeneratingAll ? <><i className="fas fa-spinner fa-spin mr-2"></i> Rendering...</> : 
-                   isConsistencyActive ? "Production (Nano Pro 1K)" : "Standard Production"}
+                   isConsistencyActive ? "Production (Nano Pro 2K)" : "Standard Production"}
                 </button>
                 <button
                   onClick={handleDownloadAllImages}
@@ -679,6 +733,9 @@ const App: React.FC = () => {
                       <div className="flex flex-col items-center">
                         {angle.status === 'generating' ? <i className="fas fa-circle-notch fa-spin text-4xl text-indigo-500"></i> : <i className="fas fa-video text-6xl text-slate-800 opacity-20"></i>}
                       </div>
+                    )}
+                    {angle.status === 'generating' && (
+                      <div className="absolute inset-0 bg-gradient-to-br from-indigo-500/10 via-slate-900/40 to-emerald-500/10 animate-pulse"></div>
                     )}
                     <div className="absolute top-5 left-5 bg-black/80 backdrop-blur-md px-4 py-2 rounded-2xl text-[10px] font-black text-white uppercase tracking-[0.3em] border border-white/10">
                       STEP 0{angle.id + 1}

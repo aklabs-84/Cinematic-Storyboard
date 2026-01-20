@@ -319,7 +319,7 @@ export const generateStoryShot = async (
           
           SCENE DESCRIPTION: ${prompt}
           
-          STYLE: Cinematic, professional photography, high-end 8k resolution, masterwork quality.
+          STYLE: Cinematic, professional photography, high-end resolution, masterwork quality.
           No variations in the person's identity allowed.
         `
       }
